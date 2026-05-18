@@ -503,21 +503,34 @@ class PackageManager:
         self.lockfile.save(lock['packages'])
 
     def _find_package_source(self, name: str) -> Optional[Dict]:
-        """Search for package: first interpret as user/repo if contains '/', else search GitHub topics."""
+        """Search for package: local stdmodules first, then GitHub topics, then direct user/repo."""
+        
+        # 1. Сначала ищем в локальной папке stdmodules рядом с elp
+        script_dir = Path(__file__).parent.resolve()
+        std_dir = script_dir / 'stdmodules' / name
+        if std_dir.exists() and (std_dir / 'elymodule.json').exists():
+            print(f"Found '{name}' in local stdmodules/")
+            return {
+                'full_name': f'local:stdmodules/{name}',
+                'description': 'Standard library module',
+                'local_path': str(std_dir)
+            }
+        
+        # 2. Прямой user/repo
         if '/' in name and not name.startswith(('http://', 'https://')):
             parts = name.split('/')
             if len(parts) == 2:
-                # Direct user/repo
                 return {'full_name': name, 'description': ''}
-        # Search by topic
+        
+        # 3. Поиск на GitHub по темам
         query = f"topic:{ELYMODULE_TOPICS[0]}+topic:{ELYMODULE_TOPICS[1]}+{name}+in:name"
         repos = self.fetcher.search_repos(query)
-        if not repos:
-            return None
-        # Prefer exact match on repo name
-        exact = [r for r in repos if r['name'].lower() == name.lower()]
-        repo = exact[0] if exact else repos[0]
-        return {'full_name': repo['full_name'], 'description': repo.get('description', '')}
+        if repos:
+            exact = [r for r in repos if r['name'].lower() == name.lower()]
+            repo = exact[0] if exact else repos[0]
+            return {'full_name': repo['full_name'], 'description': repo.get('description', '')}
+        
+        return None
 
     def _parse_spec(self, spec: str) -> Tuple[str, Optional[str]]:
         if '@' in spec:
