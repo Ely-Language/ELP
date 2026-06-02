@@ -1,119 +1,65 @@
 #!/usr/bin/env python3
-"""
-elp — Ely Language Package Manager
+"""ELY Language Package Manager CLI."""
 
-Usage:
-    elp init [name]             Create a new elymodule.json + src/ scaffold
-    elp install <pkg>[@ver]     Install a package from stdmodules or GitHub
-    elp install-local <path>    Install a package from a local directory
-    elp remove <pkg>            Remove an installed package
-    elp update                  Update all dependencies
-    elp list                    List installed packages
-    elp list-available          List available standard modules (stdmodules/)
-    elp pack [--output <file>]  Pack project into .elypkg archive
-    elp publish                 Publish to local registry
-    elp info <pkg>              Show package metadata
-    elp build [path]            Build project (path = directory or manager.json)
-    elp run [path]              Build & run project
-"""
-
-import argparse
-import json
-import subprocess
 import sys
+import argparse
 from pathlib import Path
 
-# Ensure we can import from the parent directory (EasyBoots root)
-sys.path.insert(0, str(Path(__file__).parent.parent))
+BASE_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
 from package_manager import PackageManager
 
 
-def _resolve_and_build(mgr: PackageManager, path: str | None, run_after: bool = False) -> int:
-    """
-    Resolve manager.json from path, then build (and optionally run).
-
-    Path can be:
-      - None          → look for manager.json in cwd
-      - directory     → look for manager.json inside it
-      - manager.json  → use directly
-    """
-    manager_path = mgr.resolve_manager_path(path)
-    if not manager_path:
-        if path:
-            print(f"No manager.json found in: {path}")
-        else:
-            print("No manager.json found in current directory.")
-        return 1
-
-    project_dir = manager_path.parent
-    ebt_path = Path(__file__).parent.parent / 'ebt.py'
-
-    if run_after:
-        cmd = [sys.executable, str(ebt_path), 'run', str(manager_path)]
-    else:
-        cmd = [sys.executable, str(ebt_path), 'build', str(manager_path)]
-
-    print(f"Project: {project_dir}")
-    print(f"Running: {' '.join(cmd)}")
-    print()
-
-    result = subprocess.run(cmd, cwd=str(project_dir))
-    return result.returncode
-
-
 def main():
-    parser = argparse.ArgumentParser(
-        prog='elp',
-        description='Ely Language Package Manager'
-    )
+    parser = argparse.ArgumentParser(prog='elp', description='Ely Language Package Manager')
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # elp init [name]
-    init_parser = subparsers.add_parser('init', help='Initialise a new module')
-    init_parser.add_argument('name', nargs='?', default='my-module',
-                             help='Module name (default: my-module)')
+    init_parser = subparsers.add_parser('init', help='Initialise a new elymodule.json')
+    init_parser.add_argument('name', nargs='?', default='my-module', help='Module name')
 
-    # elp install <pkg>[@ver]
-    install_parser = subparsers.add_parser('install', help='Install a package from stdmodules or GitHub')
-    install_parser.add_argument('package', help='Package name (e.g. "file", "json") or "user/repo" for GitHub')
+    # elp install <pkg>
+    install_parser = subparsers.add_parser('install', help='Install a package')
+    install_parser.add_argument('package', help='Package name (from stdmodules) or user/repo (from GitHub)')
 
     # elp install-local <path>
     local_parser = subparsers.add_parser('install-local', help='Install a package from a local directory')
-    local_parser.add_argument('path', help='Path to package directory (contains elymodule.json)')
+    local_parser.add_argument('path', help='Path to the package directory')
 
     # elp remove <pkg>
     remove_parser = subparsers.add_parser('remove', help='Remove an installed package')
-    remove_parser.add_argument('package', help='Package name to remove')
+    remove_parser.add_argument('package', help='Package name')
 
     # elp update
-    update_parser = subparsers.add_parser('update', help='Update all dependencies')
+    update_parser = subparsers.add_parser('update', help='Update all installed packages')
 
     # elp list
     list_parser = subparsers.add_parser('list', help='List installed packages')
 
     # elp list-available
-    list_avail_parser = subparsers.add_parser('list-available', help='List available standard modules')
+    avail_parser = subparsers.add_parser('list-available', help='List available standard modules')
 
     # elp pack [--output <file>]
     pack_parser = subparsers.add_parser('pack', help='Pack project into .elypkg archive')
-    pack_parser.add_argument('--output', '-o', help='Output archive name')
+    pack_parser.add_argument('--output', help='Output archive name')
 
     # elp publish
-    publish_parser = subparsers.add_parser('publish', help='Publish to local registry')
+    publish_parser = subparsers.add_parser('publish', help='Publish package to local registry')
 
     # elp info <pkg>
     info_parser = subparsers.add_parser('info', help='Show package metadata')
     info_parser.add_argument('package', help='Package name')
 
     # elp build [path]
-    build_parser = subparsers.add_parser('build', help='Build project (path = directory or manager.json)')
-    build_parser.add_argument('path', nargs='?', default=None,
-                              help='Path to project directory or manager.json (default: cwd)')
+    build_parser = subparsers.add_parser('build', help='Build project')
+    build_parser.add_argument('path', nargs='?', default=None, help='Path to project directory or manager.json')
+    build_parser.add_argument('--force', action='store_true', help='Force full rebuild')
 
     # elp run [path]
-    run_parser = subparsers.add_parser('run', help='Build & run project')
-    run_parser.add_argument('path', nargs='?', default=None,
-                            help='Path to project directory or manager.json (default: cwd)')
+    run_parser = subparsers.add_parser('run', help='Build and run project')
+    run_parser.add_argument('path', nargs='?', default=None, help='Path to project directory or manager.json')
+    run_parser.add_argument('--args', nargs='+', default=[], help='Arguments for the executable')
 
     args = parser.parse_args()
 
@@ -121,67 +67,82 @@ def main():
         parser.print_help()
         return 1
 
-    mgr = PackageManager()
+    pm = PackageManager()
 
     if args.command == 'init':
-        return 0 if mgr.init(args.name) else 1
-
+        return 0 if pm.init(args.name) else 1
     elif args.command == 'install':
-        return 0 if mgr.install(args.package) else 1
-
+        return 0 if pm.install(args.package) else 1
     elif args.command == 'install-local':
-        return 0 if mgr.install_local(args.path) else 1
-
+        return 0 if pm.install_local(args.path) else 1
     elif args.command == 'remove':
-        return 0 if mgr.remove(args.package) else 1
-
+        return 0 if pm.remove(args.package) else 1
     elif args.command == 'update':
-        return 0 if mgr.update() else 1
-
+        return 0 if pm.update() else 1
     elif args.command == 'list':
-        packages = mgr.list_packages()
+        packages = pm.list_packages()
         if packages:
-            print(f"\nInstalled packages ({len(packages)}):")
-            print(f"{'Name':<20} {'Version':<12} Description")
-            print("-" * 60)
+            print("Installed packages:")
             for pkg in packages:
-                print(f"{pkg['name']:<20} {pkg['version']:<12} {pkg['description']}")
+                print(f"  {pkg['name']}@{pkg['version']} - {pkg['description']}")
         else:
             print("No packages installed.")
         return 0
-
     elif args.command == 'list-available':
-        modules = mgr.list_available()
+        modules = pm.list_available()
         if modules:
-            print(f"\nAvailable standard modules ({len(modules)}):")
-            print(f"{'Name':<20} {'Version':<12} Description")
-            print("-" * 60)
-            for m in modules:
-                print(f"{m['name']:<20} {m['version']:<12} {m['description']}")
+            print("Available standard modules:")
+            for mod in modules:
+                print(f"  {mod['name']}@{mod['version']} - {mod['description']}")
         else:
-            print("No standard modules found.")
+            print("No standard modules available.")
         return 0
-
     elif args.command == 'pack':
-        return 0 if mgr.pack(args.output) else 1
-
+        return 0 if pm.pack(args.output) else 1
     elif args.command == 'publish':
-        return 0 if mgr.publish() else 1
-
+        return 0 if pm.publish() else 1
     elif args.command == 'info':
-        meta = mgr.info(args.package)
-        if meta:
-            print(json.dumps(meta, indent=4))
-            return 0
+        info = pm.info(args.package)
+        if info:
+            import json
+            print(json.dumps(info, indent=4))
         else:
             print(f"Package '{args.package}' not found.")
             return 1
-
+        return 0
     elif args.command == 'build':
-        return _resolve_and_build(mgr, args.path, run_after=False)
+        # Delegate to ebt's build
+        from builder import ProjectBuilder
+        from package_manager import PackageManager as PM
+        project_path = PM.resolve_manager_path(args.path)
+        if not project_path:
+            print("No manager.json found. Are you in an Ely project?")
+            return 1
 
+        builder_obj = ProjectBuilder(project_path)
+        builder_obj.optimization = 'hard'
+        builder_obj.force_rebuild = args.force
+        success = builder_obj.build()
+        return 0 if success else 1
     elif args.command == 'run':
-        return _resolve_and_build(mgr, args.path, run_after=True)
+        import subprocess
+        from builder import ProjectBuilder
+        from package_manager import PackageManager as PM
+        project_path = PM.resolve_manager_path(args.path)
+        if not project_path:
+            print("No manager.json found. Are you in an Ely project?")
+            return 1
+
+        builder_obj = ProjectBuilder(project_path)
+        builder_obj.optimization = 'hard'
+        success = builder_obj.build()
+        if not success:
+            return 1
+        exe = builder_obj.output_name
+        if not exe or not Path(exe).is_file():
+            print(f"Executable not found: {exe}")
+            return 1
+        return subprocess.call([exe] + args.args)
 
     return 0
 
